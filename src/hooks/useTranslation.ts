@@ -49,10 +49,17 @@ export const useTranslation = (): TranslationHook => {
       url.searchParams.append('q', text);
       url.searchParams.append('langpair', langPair);
 
-      const response = await fetch(url.toString());
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+      const response = await fetch(url.toString(), {
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
       
       if (!response.ok) {
-        throw new Error(`Translation API error: ${response.status}`);
+        throw new Error(`Translation service unavailable (${response.status})`);
       }
 
       const data = await response.json();
@@ -69,7 +76,7 @@ export const useTranslation = (): TranslationHook => {
       
       // Handle MyMemory's warning messages
       if (translated.includes('MYMEMORY WARNING')) {
-        throw new Error('Translation limit reached. Please try again later.');
+        throw new Error('Daily limit reached. Please try again tomorrow.');
       }
 
       setTranslatedText(translated);
@@ -81,7 +88,18 @@ export const useTranslation = (): TranslationHook => {
         targetLanguage: targetLang,
       };
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Translation failed';
+      let errorMessage = 'Translation failed';
+      
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          errorMessage = 'Translation timed out. Please try again.';
+        } else if (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed')) {
+          errorMessage = 'Unable to connect to translation service. Check your internet connection.';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
       setError(errorMessage);
       setIsTranslating(false);
       console.error('Translation error:', err);
